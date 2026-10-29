@@ -17,6 +17,11 @@ Each skill is a folder with a `SKILL.md` that teaches Claude (or any agent that 
 | [sop-writer](skills/sop-writer) | Turns a messy process description into a standard operating procedure | No |
 | [call-notes-to-crm](skills/call-notes-to-crm) | Converts call notes or transcripts into CRM fields, next steps and a follow-up email | No |
 | [weekly-ops-report](skills/weekly-ops-report) | Builds a one-page weekly status report with RAG status, risks and asks | No |
+| [churn-risk-review](skills/churn-risk-review) | Scores an account's churn risk from usage, tickets and NPS, with reasons and a save plan | No |
+| [invoice-chaser](skills/invoice-chaser) | Writes a polite, escalating 3-step payment reminder sequence | No |
+| [qbr-deck-outline](skills/qbr-deck-outline) | Turns account metrics and notes into a quarterly business review outline | No |
+| [job-post-to-icp](skills/job-post-to-icp) | Pulls buying signals from a job post and scores the company against your ICP | No |
+| [zapier-to-n8n-migration](skills/zapier-to-n8n-migration) | Plans a Zapier to n8n migration: node mapping, credentials, risks and order | No |
 
 ## Install
 
@@ -92,13 +97,11 @@ tests/                              script tests
 
 Skills we want next. Each has an open issue labelled `good first issue`:
 
-- `churn-risk-review` for customer success account reviews
-- `pipeline-hygiene` for stale deals and missing fields
-- `invoice-chaser` for polite, escalating payment reminders
-- `hubspot-property-audit` for CRM property cleanup
-- `zapier-to-n8n-migration` planning
-- `job-post-to-icp` for hiring-signal prospecting
-- `qbr-deck-outline` for quarterly business reviews
+- `pipeline-hygiene` for stale deals and missing fields (pull request in review)
+- `hubspot-property-audit` for CRM property cleanup (pull request in review)
+- Add example inputs for `icp-lead-scoring`
+
+Have an idea for a skill you use every week? Open an issue with the "New skill idea" template.
 
 ## License
 

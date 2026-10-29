@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "operator-skills",
-      "description": "Lead list cleanup, ICP scoring, outreach sequences, n8n workflow review, SOPs, call notes to CRM and weekly ops reports",
+      "description": "Agent skills for ops, GTM, RevOps and customer success: lead cleanup, ICP scoring, outreach, n8n review, SOPs, CRM notes, reports, churn risk, invoices, QBRs and migrations",
       "source": "./",
       "strict": false,
       "skills": [
@@ -21,7 +21,12 @@
         "./skills/n8n-workflow-review",
         "./skills/sop-writer",
         "./skills/call-notes-to-crm",
-        "./skills/weekly-ops-report"
+        "./skills/weekly-ops-report",
+        "./skills/churn-risk-review",
+        "./skills/invoice-chaser",
+        "./skills/qbr-deck-outline",
+        "./skills/job-post-to-icp",
+        "./skills/zapier-to-n8n-migration"
       ]
     }
   ]
