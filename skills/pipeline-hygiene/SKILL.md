@@ -15,7 +15,9 @@ A pipeline review is only useful if the same deals count as stale every week. Th
    python3 ${CLAUDE_SKILL_DIR}/scripts/flag_deals.py deals.csv --report deals.report.json
    ```
 
-   It writes a flagged copy of the CSV next to the input (or to `--out`) and prints a one-screen summary. Exit code 2 means an input problem; the message says which column is missing.
+   It writes a flagged copy of the CSV next to the input (or to `--out`) and prints a one-screen summary. Exit code 2 means an input problem; the message says which column is missing. The script refuses to write over the input file, or to send the report and the flagged copy to the same path.
+
+   The flagged copy prefixes any cell starting with `=`, `+`, `-` or `@` with an apostrophe, so spreadsheet apps keep the value as text instead of running it as a formula. Pass `--no-formula-escape` when you need the raw values.
 
 2. **Read the report.** Start with the counts per flag and the total pipeline value in each flag.
 3. **Rank by money, not count.** Sort the flagged deals by amount and present the top ten with their flags.
@@ -42,6 +44,8 @@ Deals: 412, flagged: 87 (21 percent), value flagged: 1,240,000 EUR
 Top 10 by amount
 | Deal | Amount | Flags |
 ```
+
+The JSON report also carries `rows_with_bad_amount`: rows whose amount could not be parsed. They count as 0 in the totals, so say so when the count is greater than zero.
 
 ## Rules
 

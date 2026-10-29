@@ -20,6 +20,13 @@ ALIASES = {
     "stage_entered": ["stage_entered", "stage entered", "stage entered date"],
 }
 
+# Leading characters that make spreadsheet apps treat a cell as a formula.
+FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+class InputError(Exception):
+    """A problem with the input or the output paths that the user can fix."""
+
 
 def build_map(fieldnames):
     lower = {f.strip().lower(): f for f in fieldnames if f}
@@ -45,11 +52,27 @@ def parse_date(value):
 
 
 def parse_amount(value):
+    """Return (amount, parsed). An unparseable amount counts as 0 and is reported."""
     text = (value or "").replace(",", "").replace("$", "").replace("EUR", "").strip()
     try:
-        return float(text)
+        return float(text), True
     except ValueError:
-        return 0.0
+        return 0.0, False
+
+
+def escape_formula(value):
+    if value and value.startswith(FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
+def read_rows(path):
+    """Return (fieldnames, rows) for a CRM export."""
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+    return fieldnames, rows
 
 
 def main(argv=None):
@@ -60,34 +83,58 @@ def main(argv=None):
     parser.add_argument("--stale-days", type=int, default=30)
     parser.add_argument("--stuck-days", type=int, default=45)
     parser.add_argument("--today", help="YYYY-MM-DD, defaults to today")
+    parser.add_argument("--no-formula-escape", action="store_true",
+                        help="do not prefix cells starting with = + - @ with an apostrophe")
     args = parser.parse_args(argv)
 
+    csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
     path = Path(args.input)
-    if not path.is_file():
-        print(f"input not found: {path}", file=sys.stderr)
+    out_path = Path(args.out) if args.out else path.with_name(path.stem + ".flagged.csv")
+    report_path = Path(args.report) if args.report else None
+
+    try:
+        if not path.is_file():
+            raise InputError(f"file not found: {path}")
+        targets = [path.resolve(), out_path.resolve()]
+        if report_path is not None:
+            targets.append(report_path.resolve())
+        if len(set(targets)) < len(targets):
+            raise InputError("--out and --report must differ from the input file and from each other")
+        today = dt.date.today()
+        if args.today:
+            today = parse_date(args.today)
+            if today is None:
+                raise InputError("--today must be YYYY-MM-DD")
+        fieldnames, rows = read_rows(path)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
-    today = parse_date(args.today) if args.today else dt.date.today()
-    if today is None:
-        print("--today must be YYYY-MM-DD", file=sys.stderr)
+    except UnicodeDecodeError:
+        print("error: file is not UTF-8. Re-save it as 'CSV UTF-8' and retry.", file=sys.stderr)
+        return 2
+    except csv.Error as exc:
+        print(f"error: could not parse CSV ({exc})", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"error: could not read input ({exc})", file=sys.stderr)
         return 2
 
-    with path.open(newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = reader.fieldnames or []
-        mapping = build_map(fieldnames)
-        missing = [k for k in ("name", "amount") if k not in mapping]
-        if missing:
-            print("missing required column(s): " + ", ".join(missing), file=sys.stderr)
-            return 2
-        rows = list(reader)
+    mapping = build_map(fieldnames)
+    missing = [k for k in ("name", "amount") if k not in mapping]
+    if missing:
+        print("missing required column(s): " + ", ".join(missing), file=sys.stderr)
+        return 2
 
     flags = {"missing_close_date": [], "missing_next_step": [], "stale": [], "stuck": []}
     total_value = 0.0
     flagged_value = 0.0
     flagged = 0
+    bad_amount_rows = 0
     out_rows = []
     for row in rows:
-        amount = parse_amount(row.get(mapping.get("amount", ""), ""))
+        amount, parsed = parse_amount(row.get(mapping.get("amount", ""), ""))
+        if not parsed:
+            bad_amount_rows += 1
         total_value += amount
         row_flags = []
         close = parse_date(row.get(mapping.get("close_date", ""), ""))
@@ -111,31 +158,46 @@ def main(argv=None):
         out_row["flags"] = ";".join(row_flags)
         out_rows.append(out_row)
 
-    out_path = Path(args.out) if args.out else path.with_name(path.stem + ".flagged.csv")
+    if not args.no_formula_escape:
+        out_rows = [{k: escape_formula(v) for k, v in row.items()} for row in out_rows]
+
     names = fieldnames + ["flags"]
-    with out_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=names)
-        writer.writeheader()
-        writer.writerows(out_rows)
+    try:
+        with out_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=names)
+            writer.writeheader()
+            writer.writerows(out_rows)
+    except OSError as exc:
+        print(f"error: could not write flagged CSV ({exc})", file=sys.stderr)
+        return 2
 
     by_flag = {}
     for flag, items in flags.items():
-        by_flag[flag] = {"deals": len(items), "value": round(sum(parse_amount(r.get(mapping.get("amount", ""), "")) for r in items), 2)}
+        by_flag[flag] = {"deals": len(items),
+                         "value": round(sum(parse_amount(r.get(mapping.get("amount", ""), ""))[0] for r in items), 2)}
 
     report = {
         "deals": len(rows),
         "flagged": flagged,
         "total_value": round(total_value, 2),
         "flagged_value": round(flagged_value, 2),
+        "rows_with_bad_amount": bad_amount_rows,
+        "formula_escape": not args.no_formula_escape,
         "by_flag": by_flag,
         "thresholds": {"stale_days": args.stale_days, "stuck_days": args.stuck_days},
     }
-    if args.report:
-        Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if report_path is not None:
+        try:
+            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        except OSError as exc:
+            print(f"error: could not write report ({exc})", file=sys.stderr)
+            return 2
 
     print(f"Deals: {len(rows)}, flagged: {flagged}, value flagged: {flagged_value:,.0f}")
     for flag, data in by_flag.items():
         print(f"- {flag}: {data['deals']} deals, {data['value']:,.0f}")
+    if bad_amount_rows:
+        print(f"- rows with no parseable amount: {bad_amount_rows} (counted as 0)")
     print(f"flagged CSV: {out_path}")
     return 0
 
