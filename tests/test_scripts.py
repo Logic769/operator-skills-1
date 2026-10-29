@@ -291,6 +291,56 @@ class HubspotPropertyAuditTests(unittest.TestCase):
         self.assertTrue(report["usage_supplied"])
         self.assertEqual(report["by_finding"]["unused"], 1)
 
+    def test_unrelated_picklists_in_one_group_are_not_drift(self):
+        report, _ = self.run_audit(
+            "a,Red type,G,x,Red;Blue\n"
+            "b,Lead type,G,y,Lead;MQL\n"
+        )
+        self.assertEqual(report["picklist_drift"], [])
+        self.assertNotIn("inconsistent_picklist", report["by_finding"])
+
+    def test_picklist_drift_reports_the_raw_spellings(self):
+        report, _ = self.run_audit(
+            "a,One,G,x,Lead;MQL\n"
+            "b,Two,G,y,lead;mql\n"
+        )
+        self.assertEqual(len(report["picklist_drift"]), 1)
+        drift = report["picklist_drift"][0]
+        self.assertEqual(drift["group"], "G")
+        self.assertEqual(drift["variants"], [["Lead", "MQL"], ["lead", "mql"]])
+        self.assertEqual(drift["properties"], ["a", "b"])
+
+    def test_duplicate_option_within_a_property_is_flagged(self):
+        report, _ = self.run_audit("a,One,G,x,Lead;lead\n")
+        self.assertEqual(report["by_finding"]["inconsistent_picklist"], 1)
+
+    def test_formula_cells_are_escaped(self):
+        report, _ = self.run_audit("a,=SUM(A1),G,x,One;Two\n")
+        self.assertTrue(report["formula_escape"])
+        with open(self.dir / "p.audited.csv", newline="", encoding="utf-8") as f:
+            row = list(csv.DictReader(f))[0]
+        self.assertTrue(row["label"].startswith("'"), row["label"])
+
+    def test_formula_escape_can_be_disabled(self):
+        self.run_audit("a,=SUM(A1),G,x,One;Two\n", "--no-formula-escape")
+        with open(self.dir / "p.audited.csv", newline="", encoding="utf-8") as f:
+            row = list(csv.DictReader(f))[0]
+        self.assertEqual(row["label"], "=SUM(A1)")
+
+    def test_non_utf8_input_is_a_clean_error(self):
+        src = self.dir / "latin.csv"
+        src.write_bytes(("name,label\na,Jos\xe9\n").encode("latin-1"))
+        proc = run(self.SCRIPT, str(src))
+        self.assertEqual(proc.returncode, 2)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_output_paths_must_not_reuse_the_input(self):
+        src = self.dir / "p.csv"
+        src.write_text(self.HEADER + "a,A,G,x,One;Two\n", encoding="utf-8")
+        self.assertEqual(run(self.SCRIPT, str(src), "--out", str(src)).returncode, 2)
+        same = self.dir / "x.csv"
+        self.assertEqual(run(self.SCRIPT, str(src), "--out", str(same), "--report", str(same)).returncode, 2)
+
     def test_missing_name_column_is_rejected(self):
         src = self.dir / "bad.csv"
         src.write_text("label,group\nA,G\n", encoding="utf-8")

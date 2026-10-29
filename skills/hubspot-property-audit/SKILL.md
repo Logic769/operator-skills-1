@@ -15,7 +15,9 @@ A property export grows into hundreds of fields, and nobody remembers which ones
    python3 ${CLAUDE_SKILL_DIR}/scripts/audit_properties.py properties.csv --report audit.json
    ```
 
-   Add `--usage usage.csv` when the user can export property usage (columns `property` and `count`); without it, `unused` stays unknown.
+   Add `--usage usage.csv` when the user can export property usage (columns `property` and `count`); without it, `unused` stays unknown. The script refuses to write over the input file, or to send the report and the flagged copy to the same path.
+
+   The flagged copy prefixes any cell starting with `=`, `+`, `-` or `@` with an apostrophe, so spreadsheet apps keep the value as text instead of running it as a formula. Pass `--no-formula-escape` when you need the raw values.
 
 2. **Read the report.** It prints counts per finding and writes a JSON report plus a flagged copy of the CSV.
 3. **Review the four findings in this order:** duplicate labels, inconsistent picklists, missing descriptions, unused properties.
@@ -25,7 +27,7 @@ A property export grows into hundreds of fields, and nobody remembers which ones
 
 - `duplicate_label`: two or more properties share the same label, case-insensitively.
 - `missing_description`: the description is empty. HubSpot shows this text in the editor, so an empty one is a real gap.
-- `inconsistent_picklist`: properties in the same group use the same option labels with different letter case or trailing spaces, or define the same option value twice.
+- `inconsistent_picklist`: properties in the same group use the same option set with different spelling (compared after trimming and lowercasing, so unrelated picklists are not drift), or one property defines the same option value twice. Each drift entry lists the group, the normalised options, the raw `variants` and the affected properties.
 - `unused`: only when `--usage` is given; the property's count is zero.
 
 Header aliases are matched case-insensitively (`internal name`, `property name`, `name`; `label`, `display label`; `group`, `group name`; `description`; `options`, `choices`; `type`, `field type`).
