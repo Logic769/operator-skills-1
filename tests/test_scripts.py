@@ -241,6 +241,64 @@ class LintWorkflowTests(unittest.TestCase):
         self.assertEqual(json.loads(r.stdout)[0]["findings"], [])
 
 
+class HubspotPropertyAuditTests(unittest.TestCase):
+    SCRIPT = ROOT / "skills" / "hubspot-property-audit" / "scripts" / "audit_properties.py"
+    HEADER = "name,label,group,description,options\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_audit(self, text, *extra):
+        src = self.dir / "p.csv"
+        src.write_text(self.HEADER + text, encoding="utf-8")
+        report = self.dir / "r.json"
+        proc = run(self.SCRIPT, str(src), "--report", str(report), *extra)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(report.read_text()), proc
+
+    def test_flags_duplicates_and_missing_descriptions(self):
+        report, proc = self.run_audit(
+            "a,A,G,Used,x;y\n"
+            "b,A,G,Also used,x;y\n"
+            "c,C,G,,\n"
+        )
+        self.assertEqual(report["properties"], 3)
+        self.assertEqual(report["by_finding"]["duplicate_label"], 2)
+        self.assertEqual(report["by_finding"]["missing_description"], 1)
+        self.assertEqual(report["duplicate_labels"][0]["label"], "a")
+        self.assertIn("missing_description", proc.stdout)
+
+    def test_flags_picklist_case_drift(self):
+        report, _ = self.run_audit(
+            "a,One,G,x,Lead;MQL;SQL\n"
+            "b,Two,G,y,lead;mql;sql\n"
+        )
+        self.assertEqual(len(report["picklist_drift"]), 1)
+        self.assertIn("inconsistent_picklist", report["by_finding"])
+
+    def test_usage_export_marks_zero_counts_unused(self):
+        usage = self.dir / "u.csv"
+        usage.write_text("property,count\na,10\nb,0\n", encoding="utf-8")
+        report, _ = self.run_audit(
+            "a,A,G,x,\n"
+            "b,B,G,y,\n",
+            "--usage", str(usage),
+        )
+        self.assertTrue(report["usage_supplied"])
+        self.assertEqual(report["by_finding"]["unused"], 1)
+
+    def test_missing_name_column_is_rejected(self):
+        src = self.dir / "bad.csv"
+        src.write_text("label,group\nA,G\n", encoding="utf-8")
+        proc = run(self.SCRIPT, str(src))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("name and label", proc.stderr)
+
+
 class ValidatorTests(unittest.TestCase):
     def test_repo_passes(self):
         r = run(VALIDATE)
